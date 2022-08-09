@@ -1,0 +1,474 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This template deploys a VPC, with a pair of public, private and data subnets spread
+  across two Availability Zones. It deploys an Internet Gateway, with a default
+  route on the public subnets and NAT gateway and route for private subnet.
+
+Parameters:
+  VPCCIDR:
+    Description: "VPC IP RANGE"
+    Type: String
+    Default: '10.0.0.0/16'
+  PublicSubnet1CIDR:
+    Description: "PUBLIC SUBNET 1 IP RANGE"
+    Type: String
+    Default: '10.0.1.0/24'
+  PublicSubnet1AZ:
+    Description: "PUBLIC SUBNET 1 AZ"
+    Type: String
+    Default: 'us-west-2a'
+  PublicSubnet2CIDR:
+    Description: "PUBLIC SUBNET 2 IP RANGE"
+    Type: String
+    Default: '10.0.2.0/24'
+  PublicSubnet2AZ:
+    Description: "PUBLIC SUBNET 2 AZ"
+    Type: String
+    Default: 'us-west-2b'
+  PrivateSubnet1CIDR:
+    Description: "PRIVATE SUBNET 1 IP RANGE"
+    Type: String
+    Default: '10.0.3.0/24'
+  PrivateSubnet1AZ:
+    Description: "PRIVATE SUBNET 1 AZ"
+    Type: String
+    Default: 'us-west-2c'
+  PrivateSubnet2CIDR:
+    Description: "PRIVATE SUBNET 2 IP RANGE"
+    Type: String
+    Default: '10.0.4.0/24'
+  PrivateSubnet2AZ:
+    Description: "PRIVATE SUBNET 2 AZ"
+    Type: String
+    Default: 'us-west-2d'
+  DBName:
+    Default: MyDatabase
+    Description: The database name
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric
+      characters.
+#  DBUser:
+#    NoEcho: 'true'
+#    Default: cloudapp1
+#    Description: The database admin account username
+#    Type: AWS::SSM::Parameter::Value<SecureString>
+#    MinLength: '1'
+#    MaxLength: '16'
+#    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+#    ConstraintDescription: must begin with a letter and contain only alphanumeric
+#      characters.
+#  DBPassword:
+#    NoEcho: 'true'
+#    Description: The database admin account password
+#    Type: AWS::SSM::Parameter::Value<SecureString>
+#    MinLength: '1'
+#    MaxLength: '41'
+#    AllowedPattern: '[a-zA-Z0-9]+'
+#    ConstraintDescription: must contain only alphanumeric characters.
+  ServiceName:
+    Type: String
+    Default: student-service
+
+Resources:
+  CustomVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: student-db-stack-vpc
+
+  CustomIG:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: student-db-stack-ig
+
+  GatewayToInternet:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref CustomIG
+      VpcId: !Ref CustomVpc
+
+  # Public Subnets Route Tables and routes
+  CustomPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CustomVpc
+      Tags:
+        - Key: Name
+          Value: student-db-stack-public-route-table
+
+  PublicSubnetsRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayToInternet
+    Properties:
+      RouteTableId: !Ref CustomPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CustomIG
+
+  # Public Subnet 1
+  CustomPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustomVpc
+      AvailabilityZone: !Ref PublicSubnet1AZ
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: student-db-stack-publicsubnet-1
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref CustomPublicRouteTable
+      SubnetId: !Ref CustomPublicSubnet1
+
+  # Public Subnet 2
+  CustomPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustomVpc
+      AvailabilityZone: !Ref PublicSubnet2AZ
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: student-db-stack-publicsubnet-2
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref CustomPublicRouteTable
+      SubnetId: !Ref CustomPublicSubnet2
+
+  # Private Subnet 1
+  CustomPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustomVpc
+      AvailabilityZone: !Ref PrivateSubnet1AZ
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: student-db-stack-privatesubnet-1
+
+  CustomPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustomVpc
+      AvailabilityZone: !Ref PrivateSubnet2AZ
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: student-db-stack-privatesubnet-2
+
+  CustomPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CustomVpc
+      Tags:
+        - Key: Name
+          Value: student-db-stack-private-routetable
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CustomPrivateSubnet1
+      RouteTableId: !Ref CustomPrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CustomPrivateSubnet2
+      RouteTableId: !Ref CustomPrivateRouteTable
+
+#Database part
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: DB Subnet Group
+      SubnetIds:
+        - !Ref CustomPrivateSubnet1
+        - !Ref CustomPrivateSubnet2
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join [ '', [ !Ref ServiceName, LoadBalancerSecurityGroup ] ]
+      VpcId: !Ref CustomVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow tcp traffic on port 3000
+      VpcId: !Ref  CustomVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ecs fargate to connect to rds
+      VpcId: !Ref  CustomVpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+  MyDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Ref DBName
+      DBName: !Ref DBName
+      DBInstanceClass: "db.t2.micro"
+      AllocatedStorage: "20"
+      Engine: MySQL
+      EngineVersion: "8.0.28"
+      MasterUsername: "{{resolve:secretsmanager:RDSCredentials:SecretString:RDSUSER}}"
+      MasterUserPassword: "{{resolve:secretsmanager:RDSCredentials:SecretString:RDSPassword}}"
+      MultiAZ: false
+      DBSubnetGroupName: !Ref DBSubnetGroup
+#      VpcSecurityGroupIds:
+#        - !Ref RDSSecurityGroup
+
+#ECR PART
+  NginxSSHECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: 'student-database-images'
+
+#  ExecutionRole:
+#    Type: AWS::IAM::Role
+#    Properties:
+#      RoleName: !Join [ '', [ !Ref ServiceName, ExecutionRole ] ]
+#      AssumeRolePolicyDocument:
+#        Statement:
+#          - Effect: Allow
+#            Principal:
+#              Service: ecs-tasks.amazonaws.com
+#            Action: 'sts:AssumeRole'
+#      ManagedPolicyArns:
+#        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join [ '', [ !Ref ServiceName, TaskRole ] ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      # will look for a 200 status code by default unless specified otherwise
+      HealthCheckPath: /home
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 2
+      HealthyThresholdCount: 2
+      Name: !Join [ '', [ !Ref ServiceName, TargetGroup ] ]
+      Port: 3000
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60 # default is 300
+      TargetType: ip
+      VpcId: !Ref CustomVpc
+
+  HTTPlistener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: "HTTP"
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        # this is the default, but is specified here in case it needs to be changed
+        - Key: idle_timeout.timeout_seconds
+          Value: 60
+      Name: !Join [ '', [ !Ref ServiceName, LoadBalancer ] ]
+      # "internal" is also an option
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - !Ref CustomPublicSubnet1
+        - !Ref CustomPublicSubnet2
+
+    # A role needed for auto scaling
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join [ '', [ !Ref ServiceName, AutoScalingRole ] ]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Join [ '', [ !Ref ServiceName, Cluster ] ]
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join [ '', [ /ecs/, !Ref ServiceName, TaskDefinition ] ]
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Join [ '', [ !Ref ServiceName, TaskDefinition ] ]
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+      Cpu: 256
+      Memory: 0.5GB
+      ExecutionRoleArn: arn:aws:iam::444291025221:role/ecsTaskExecutionRole
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Image: !GetAtt NginxSSHECR.RepositoryUri
+          PortMappings:
+            - ContainerPort: 3000
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: ecs
+          Environment:
+            - Name: RDS_DB
+              Value: !Ref DBName
+            - Name: RDS_HOST
+              Value: !GetAtt MyDB.Endpoint.Address
+            - Name: RDS_PORT
+              Value: 3306
+            - Name: RDS_PASSWORD
+              Value: password
+            - Name: RDS_USER
+              Value: root
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref ServiceName
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 0
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref CustomPublicSubnet1
+            - !Ref CustomPublicSubnet2
+          SecurityGroups:
+            - !Ref InstanceSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: 3000
+          TargetGroupArn: !Ref TargetGroup
+
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: 0
+      MaxCapacity: 3
+      ResourceId: !Join [ '/', [ service, !Ref Cluster, !GetAtt Service.Name ] ]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      # "The Amazon Resource Name (ARN) of an AWS Identity and Access Management (IAM) role that allows Application Auto Scaling to modify your scalable target."
+      RoleARN: !GetAtt AutoScalingRole.Arn
+
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join [ '', [ !Ref ServiceName, AutoScalingPolicy ] ]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
+          # Keep things at or lower than 50% CPU utilization, for example
+        TargetValue: 50
+
+
+Outputs:
+  InternetGateway:
+    Description: A reference to the IG
+    Value: !Ref CustomIG
+
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref CustomVpc
+
+  PublicSubnets:
+    Description: A list of the public subnets
+    Value: !Join [",", [!Ref CustomPublicSubnet1, !Ref CustomPublicSubnet2]]
+
+  PublicSubnet1:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref CustomPublicSubnet1
+
+  PublicSubnet2:
+    Description: A reference to the public subnet in the 2nd Availability Zone
+    Value: !Ref CustomPublicSubnet2
+
+  PrivateSubnet1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref CustomPrivateSubnet1
+
+  PrivateSubnets:
+    Description: A list of the private subnets
+    Value: !Ref CustomPrivateSubnet1
